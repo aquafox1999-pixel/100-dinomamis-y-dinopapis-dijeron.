@@ -1,28 +1,126 @@
 (() => {
   'use strict';
   const form = document.getElementById('cardUpload');
+  const input = document.getElementById('card');
   const status = document.getElementById('uploadStatus');
-  const button = form.querySelector('button');
+  const button = form.querySelector('button[type="submit"]');
+  const gallery = document.getElementById('cardGallery');
+  const galleryStatus = document.getElementById('galleryStatus');
+  const refresh = document.getElementById('refreshGallery');
+  const deleting = new Set();
+  let requestId = 0;
+
+  async function api(url, options) {
+    const response = await fetch(url, { cache: 'no-store', ...options });
+    const result = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(result?.error || (response.status === 401
+      ? 'Tu acceso ha caducado. Recarga la página para ingresar de nuevo.' : 'No se pudo completar la operación. Intenta de nuevo.'));
+    return result;
+  }
+
+  function feedback(node, message, error = false) {
+    node.textContent = message;
+    node.classList.toggle('is-error', error);
+  }
+
+  function fileLabel() {
+    document.getElementById('fileName').textContent = input.files[0]?.name || 'Ningún archivo seleccionado';
+  }
+  input.addEventListener('change', () => { fileLabel(); feedback(status, ''); });
+
+  async function loadGallery() {
+    const request = ++requestId;
+    gallery.setAttribute('aria-busy', 'true');
+    refresh.disabled = true;
+    try {
+      const cards = await api('/api/cards');
+      if (request !== requestId) return;
+      if (!Array.isArray(cards)) throw new Error('No se pudo leer la galería.');
+      const fragment = document.createDocumentFragment();
+      cards.forEach((filename, index) => {
+        const card = document.createElement('figure');
+        card.className = 'gallery-card';
+        const image = document.createElement('img');
+        image.src = '/img/tarjetas/' + encodeURIComponent(filename);
+        image.alt = 'Tarjeta ' + (index + 1);
+        image.loading = 'lazy';
+        image.decoding = 'async';
+        const caption = document.createElement('figcaption');
+        const title = document.createElement('strong');
+        title.textContent = 'Tarjeta ' + (index + 1);
+        const name = document.createElement('span');
+        name.className = 'gallery-filename';
+        name.textContent = filename;
+        name.title = filename;
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'soft-btn gallery-delete';
+        remove.textContent = deleting.has(filename) ? 'Eliminando…' : 'Eliminar';
+        remove.setAttribute('aria-label', 'Eliminar tarjeta ' + (index + 1));
+        remove.dataset.filename = filename;
+        remove.disabled = deleting.has(filename);
+        caption.append(title, name, remove);
+        card.append(image, caption);
+        fragment.append(card);
+      });
+      gallery.replaceChildren(fragment);
+      document.getElementById('galleryCount').textContent = cards.length + (cards.length === 1 ? ' tarjeta en el carrusel' : ' tarjetas en el carrusel');
+      document.getElementById('galleryEmpty').hidden = cards.length !== 0;
+    } catch (error) {
+      if (request === requestId) feedback(galleryStatus, error.message, true);
+    } finally {
+      if (request === requestId) {
+        gallery.setAttribute('aria-busy', 'false');
+        refresh.disabled = false;
+      }
+    }
+  }
+
+  gallery.addEventListener('click', async event => {
+    const remove = event.target.closest('button[data-filename]');
+    if (!remove || remove.disabled) return;
+    const filename = remove.dataset.filename;
+    if (!window.confirm('¿Eliminar esta tarjeta de la galería y del carrusel de invitados? Esta acción no se puede deshacer.')) return;
+    deleting.add(filename);
+    remove.disabled = true;
+    remove.textContent = 'Eliminando…';
+    feedback(galleryStatus, 'Eliminando tarjeta…');
+    try {
+      await api('/api/cards/' + encodeURIComponent(filename), { method: 'DELETE' });
+      feedback(galleryStatus, 'Tarjeta eliminada. El carrusel de invitados ya se actualizó.');
+    } catch (error) {
+      feedback(galleryStatus, error.message, true);
+    } finally {
+      deleting.delete(filename);
+      await loadGallery();
+    }
+  });
+
   form.addEventListener('submit', async event => {
     event.preventDefault();
-    const file = document.getElementById('card').files[0];
+    const file = input.files[0];
     if (!file) return;
     if (file.size > 10 * 1024 * 1024) {
-      status.textContent = 'La imagen supera el limite de 10 MB.';
+      feedback(status, 'La imagen supera el límite de 10 MB.', true);
       return;
     }
     button.disabled = true;
-    status.textContent = 'Subiendo tarjeta...';
+    feedback(status, 'Subiendo tarjeta…');
     try {
-      const response = await fetch('/api/cards', { method: 'POST', body: new FormData(form) });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'No se pudo subir la imagen.');
+      await api('/api/cards', { method: 'POST', body: new FormData(form) });
       form.reset();
-      status.textContent = 'Tarjeta subida. Los invitados la recibieron sin recargar la pagina.';
+      fileLabel();
+      feedback(status, '¡Tarjeta subida! Ya está disponible en el carrusel de invitados.');
+      await loadGallery();
     } catch (error) {
-      status.textContent = error.message;
+      feedback(status, error.message, true);
     } finally {
       button.disabled = false;
     }
   });
+  refresh.addEventListener('click', () => { feedback(galleryStatus, ''); loadGallery(); });
+  const socket = io();
+  socket.on('cards:updated', loadGallery);
+  socket.on('connect', loadGallery);
+  loadGallery();
 })();
