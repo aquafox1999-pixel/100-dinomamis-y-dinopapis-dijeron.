@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Subir tarjetas</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body class="upload-page">
+  <main class="upload-panel">
+    <h1>Subir una tarjeta</h1>
+    <form id="cardUpload" action="/api/cards" method="post" enctype="multipart/form-data">
+      <label for="card">Imagen para los invitados</label>
+      <p id="cardHelp">PNG, JPG, GIF o WebP. M&aacute;ximo 10 MB.</p>
+      <input id="card" name="card" type="file" accept="image/png,image/jpeg,image/gif,image/webp" aria-describedby="cardHelp" required>
+      <button class="soft-btn" type="submit">Subir tarjeta</button>
+      <p id="uploadStatus" role="status" aria-live="polite"></p>
+    </form>
+  </main>
+  <script src="/js/upload.js"></script>
+</body>
+</html>
