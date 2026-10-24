@@ -77,7 +77,7 @@
   async function refreshCards() {
     const request = ++cardsRequest;
     try {
-      const response = await fetch('/cards.json', { cache: 'no-store' });
+      const response = await fetch('/api/cards', { cache: 'no-store' });
       if (!response.ok) return;
       const list = await response.json();
       if (request !== cardsRequest || !Array.isArray(list)) return;
