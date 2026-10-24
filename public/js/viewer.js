@@ -35,74 +35,6 @@
 
   const socket = io();
 
-  const carousel = document.getElementById('cardCarousel');
-  const cardImages = Array.from(carousel.querySelectorAll('img'));
-  let cards = [];
-  let cardIndex = -1;
-  let visibleLayer = 0;
-  let cardTimer = 0;
-  let cardsRequest = 0;
-  let cardTransition = 0;
-
-  function showCard(index) {
-    if (!cards.length) return;
-    cardIndex = index % cards.length;
-    const name = cards[cardIndex];
-    const transition = ++cardTransition;
-    const preload = new Image();
-    preload.onload = () => {
-      if (transition !== cardTransition) return;
-      const nextLayer = 1 - visibleLayer;
-      const next = cardImages[nextLayer];
-      next.src = preload.src;
-      next.alt = 'Tarjeta para los invitados';
-      next.removeAttribute('aria-hidden');
-      cardImages[visibleLayer].setAttribute('aria-hidden', 'true');
-      cardImages[visibleLayer].alt = '';
-      carousel.hidden = false;
-      // Asegura un cuadro inicial antes de comenzar el fundido.
-      requestAnimationFrame(() => {
-        if (transition !== cardTransition) return;
-        next.classList.add('is-visible');
-        cardImages[visibleLayer].classList.remove('is-visible');
-        visibleLayer = nextLayer;
-      });
-    };
-    preload.onerror = () => {
-      // Si una tarjeta no existe, se intenta la siguiente en el proximo turno.
-    };
-    preload.src = '/img/tarjetas/' + encodeURIComponent(name);
-  }
-
-  async function refreshCards() {
-    const request = ++cardsRequest;
-    try {
-      const response = await fetch('/api/cards', { cache: 'no-store' });
-      if (!response.ok) return;
-      const list = await response.json();
-      if (request !== cardsRequest || !Array.isArray(list)) return;
-      const current = cards[cardIndex];
-      cards = [...new Set(list.filter(name => typeof name === 'string' &&
-        !/[\\/]/.test(name) && /\.(png|jpe?g|gif|webp)$/i.test(name)))];
-      clearInterval(cardTimer);
-      ++cardTransition;
-      if (!cards.length) {
-        carousel.hidden = true;
-        cardIndex = -1;
-        cardImages.forEach(img => img.classList.remove('is-visible'));
-        return;
-      }
-      cardIndex = cards.indexOf(current);
-      if (cardIndex < 0 || carousel.hidden) showCard(Math.max(0, cardIndex));
-      if (cards.length > 1) cardTimer = setInterval(() => showCard(cardIndex + 1), 10000);
-    } catch (error) {
-      // Conserva las tarjetas actuales si se pierde la conexion.
-    }
-  }
-  socket.on('cards:updated', refreshCards);
-  socket.on('connect', refreshCards);
-  refreshCards();
-
   let renderedRound = null;
   let revealedSeen = new Set();
   let prevScores = { left: 0, right: 0 };
@@ -153,25 +85,11 @@
     clone.play().catch(() => {});
   }
 
-  function playReveal() {
-    playSound(audioCorrecto);
-  }
-
-  function playStrike() {
-    playSound(audioError);
-  }
-
-  function playFaceoff() {
-    playSound(audioInicio);
-  }
-
-  function playSteal() {
-    playSound(audioRobo);
-  }
-
-  function playWin() {
-    playSound(audioCorrecto);
-  }
+  function playReveal() { playSound(audioCorrecto); }
+  function playStrike() { playSound(audioError); }
+  function playFaceoff() { playSound(audioInicio); }
+  function playSteal() { playSound(audioRobo); }
+  function playWin() { playSound(audioCorrecto); }
 
   function buildAnswers() {
     const fragment = document.createDocumentFragment();
@@ -319,7 +237,6 @@
 
   function handleEvent(event) {
     if (!event) return;
-    // La entrega del banco en robo suena incluso si termina la partida.
     if (event.kind === 'steal' || event.kind === 'steal-failed' || event.stealResolved) {
       playSound(audioRobo);
     }
@@ -327,51 +244,16 @@
       case 'buzzer':
         if (soundOn && audioReady) GameEffects.playBuzzer();
         break;
-      case 'reveal-final':
-        break;
-      case 'restored':
-        showBanner('Progreso restaurado', null);
-        break;
-      case 'reveal':
-        playReveal();
-        break;
-      case 'faceoff-error':
-        playStrike();
-        break;
-      case 'steal-failed':
-        showBanner('Robo fallido ? +' + event.points + ' pts para ' + teamName(event.side), event.side);
-        playStrike();
-        break;
-      case 'strike':
-        flashStrike();
-        playStrike();
-        break;
-      case 'steal-ready':
-        flashStrike();
-        playStrike();
-        break;
-      case 'faceoff':
-        showBanner('¡' + teamName(event.side) + ' tocó primero!', event.side);
-        playFaceoff();
-        break;
-      case 'steal':
-        showBanner('¡Robo de ' + teamName(event.side) + '! +' + event.points + ' pts', event.side);
-        playReveal();
-        break;
-      case 'bank':
-        showBanner('+' + event.points + ' pts para ' + teamName(event.side), event.side);
-        break;
-      case 'round':
-        showBanner('Ronda ' + event.round, null);
-        playSound(audioInicio);
-        break;
-      case 'win':
-        showBanner(event.side === 'tie' ? '¡Empate!' : '¡Ganaron ' + teamName(event.side) + '!', event.side);
-        if (event.sound === 'error') playStrike();
-        else playWin();
-        break;
-      default:
-        break;
+      case 'faceoff-error': playStrike(); break;
+      case 'steal-failed': showBanner('Robo fallido ? +' + event.points + ' pts para ' + teamName(event.side), event.side); playStrike(); break;
+      case 'strike': flashStrike(); playStrike(); break;
+      case 'steal-ready': flashStrike(); playStrike(); break;
+      case 'faceoff': showBanner('¡' + teamName(event.side) + ' tocó primero!', event.side); playFaceoff(); break;
+      case 'reveal': playReveal(); break;
+      case 'steal': showBanner('¡Robo de ' + teamName(event.side) + '! +' + event.points + ' pts', event.side); playReveal(); break;
+      case 'bank': showBanner('+' + event.points + ' pts para ' + teamName(event.side), event.side); break;
+      case 'round': showBanner('Ronda ' + event.round, null); playSound(audioInicio); break;
+      case 'win': showBanner(event.side === 'tie' ? '¡Empate!' : '¡Ganaron ' + teamName(event.side) + '!', event.side); if (event.sound === 'error') playStrike(); else playWin(); break;
     }
   }
 
